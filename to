@@ -1,38 +1,84 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 TO_DIR="$HOME/.to"
+TO_DEF="sess"
+NOZ=""
+RECURSIVE="no"
+SESS=$TO_DEF
 
 usage(){
  cat <<EOF
 usage:
- to -n <label> [<program>]  # new session
- to <label>                 # existing session
+ to                         # attach to default session $TO_DEF if it exists. Create if it does not
+ to -a <label>              # attach to (or create) specified session. use default if no label specified
+ to -n <label>              # new session. fail if it exists
  to -l                      # list sessions
+ to -h                      # display help
+ to -Z                      # Ctrl-z stops session
 EOF
  exit 1;
 }
 
-n(){
- m=`umask`; umask 0077; mkdir -p "$TO_DIR"; umask "$m"
- TO="$1" exec dtach -c "$TO_DIR/$1" "$2"
-}
-
-l() {
- exec find "$TO_DIR" -type s -exec basename {} \;
-}
-
-e() {
- exec dtach -a "$TO_DIR/$1"
-}
-
-if [ x"$1" = x"-n" ]; then
- [ $# -eq 2 ] && n "$2" "$SHELL"
- [ $# -eq 3 ] && n "$2" "$3"
- usage
-elif [ x"$1" = x"-l" ]; then
- [ $# -eq 1 ] && l
- usage
-else
- [ $# -eq 1 ] && e "$1"
- usage
+if [[ ! -e "$TO_DIR" ]]; then
+    echo "Creating TO direcotry $TO_DIR..."
+    m=`umask`; umask 0077; mkdir -p "$TO_DIR"; umask "$m"
 fi
+
+list_sessions() {
+    exec find "$TO_DIR" -type s -exec basename {} \;
+}
+
+attach_or_create() {
+    if [[ -e "$TO_DIR/$1" ]]; then
+        echo "attaching to $TO_DIR/$1 $NOZ"
+        sleep 1
+        if [[ $2 == "noz" ]]; then
+            dtach -a "$TO_DIR/$1"
+        else
+            dtach -a "$TO_DIR/$1" -z
+        fi
+    else
+        echo "creating and attaching to $TO_DIR/$1 $NOZ"
+        sleep 1
+        if [[ $2 == "noz" ]]; then
+            dtach -c "$TO_DIR/$1" $SHELL
+        else
+            dtach -c "$TO_DIR/$1" -z $SHELL
+        fi
+    fi
+}
+
+while getopts "a:n:lhZ" opt; do
+    case "$opt" in
+        Z)
+            NOZ="noz"
+            ;;
+        h)
+            usage
+            exit 0
+            ;;
+        a)  # attach to (creating if necessary) specified session if it exists, or
+            # to default session 'sess' if it exists. Create if it does not
+            SESS=$OPTARG
+            ;;
+        l)
+            list_sessions
+            exit 0
+            ;;
+        n)
+            if [[ -e "$TO_DIR/$OPTARG" ]]; then
+                echo "Session $OPTARG already exists"
+                exit -1
+            else
+                SESS=$OPTARG
+            fi
+            ;;
+        \?)
+            usage
+            exit 0
+            ;;
+    esac
+done
+
+attach_or_create $SESS $NOZ
+
